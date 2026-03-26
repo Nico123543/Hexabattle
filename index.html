@@ -200,6 +200,23 @@
         cursor: pointer;
       }
 
+      .slider-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .number-input {
+        width: 100%;
+        padding: 9px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(7, 14, 18, 0.72);
+        color: var(--text);
+        font: inherit;
+      }
+
       .toggle-row {
         display: flex;
         align-items: center;
@@ -284,8 +301,8 @@
         <span class="eyebrow">Movement Prototype</span>
         <h1>Hexabattle</h1>
         <p class="intro">
-          Erste Testversion für Bewegungsgefühl und Raumdruck: ein Spieler, mehrere einfache
-          Gegner, Hexfeld-Raster, gewählte Richtung, ein Nahkampfschlag und automatische Schritte im
+          Erste Testversion für Bewegungsgefühl und Raumdruck: eine prozedural generierte Hex-Welt,
+          verschiedene Hindernisse, mehrere einfache Gegner, Nahkampf und automatische Schritte im
           festen Takt.
         </p>
 
@@ -326,12 +343,15 @@
             <div class="section-title">Geschwindigkeit</div>
             <div class="slider-value" id="speedValue">280 ms</div>
           </div>
-          <input class="slider-input" id="speedSlider" type="range" min="120" max="700" step="10" value="280" />
+          <div class="slider-controls">
+            <input class="slider-input" id="speedSlider" type="range" min="60" max="900" step="5" value="280" />
+            <input class="number-input" id="speedInput" type="number" min="60" max="900" step="5" value="280" />
+          </div>
         </div>
 
         <div class="slider-block">
           <div class="slider-row">
-            <div class="section-title">Arena</div>
+            <div class="section-title">Weltfenster</div>
             <div class="slider-value" id="arenaValue">91 Felder</div>
           </div>
           <input class="slider-input" id="arenaSlider" type="range" min="7" max="500" step="1" value="91" />
@@ -342,7 +362,10 @@
             <div class="section-title">Gegner-Tick</div>
             <div class="slider-value" id="enemySpeedValue">440 ms</div>
           </div>
-          <input class="slider-input" id="enemySpeedSlider" type="range" min="180" max="900" step="20" value="440" />
+          <div class="slider-controls">
+            <input class="slider-input" id="enemySpeedSlider" type="range" min="80" max="1200" step="5" value="440" />
+            <input class="number-input" id="enemySpeedInput" type="number" min="80" max="1200" step="5" value="440" />
+          </div>
         </div>
 
         <div class="slider-block">
@@ -392,8 +415,8 @@
           <div class="control">
             <div class="keycap">Maus</div>
             <div>
-              <strong>Richtung zeigen</strong>
-              <span>Bewege die Maus auf dem Spielfeld oder klicke hinein. Die Richtung wird dann direkt auf die nächste Hex-Ausrichtung gesetzt.</span>
+              <strong>Zielen und Dash</strong>
+              <span>Bewege die Maus zum Zielen. Linksklick springt bis zu zwei Felder weit in Blickrichtung.</span>
             </div>
           </div>
           <div class="control">
@@ -414,7 +437,7 @@
 
         <div class="status-box">
           <strong>Prototype Focus</strong>
-          <p id="statusText">Teste Richtungswahl, Arena-Größe, Lebenswert, Nahkampfmodi und optional sichtbare Gegnerbewegung.</p>
+          <p id="statusText">Teste eine dynamisch generierte Welt mit Hindernissen, Lebenswert, Dash, Nahkampf und optional sichtbarer Gegnerbewegung.</p>
         </div>
 
         <p class="footer-note">
@@ -436,10 +459,12 @@
       const tickMeter = document.getElementById("tickMeter");
       const statusText = document.getElementById("statusText");
       const speedSlider = document.getElementById("speedSlider");
+      const speedInput = document.getElementById("speedInput");
       const speedValue = document.getElementById("speedValue");
       const arenaSlider = document.getElementById("arenaSlider");
       const arenaValue = document.getElementById("arenaValue");
       const enemySpeedSlider = document.getElementById("enemySpeedSlider");
+      const enemySpeedInput = document.getElementById("enemySpeedInput");
       const enemySpeedValue = document.getElementById("enemySpeedValue");
       const healthSlider = document.getElementById("healthSlider");
       const healthValue = document.getElementById("healthValue");
@@ -460,6 +485,7 @@
       const ENEMY_SPAWN_INTERVAL = 3.2;
       const MAX_ENEMIES = 12;
       const PLAYER_HIT_COOLDOWN = 0.5;
+      const START_CLEAR_RADIUS = 2;
 
       const DIRECTIONS = [
         { q: 1, r: 0, name: "Ost", key: "E" },
@@ -480,6 +506,7 @@
       };
 
       const arenaCells = new Set();
+      const tileCache = new Map();
 
       let pixelRatio = window.devicePixelRatio || 1;
       let lastTime = performance.now();
@@ -496,11 +523,13 @@
       window.addEventListener("resize", resizeCanvas);
       window.addEventListener("keydown", handleKeyDown);
       canvas.addEventListener("pointermove", handlePointerMove);
-      canvas.addEventListener("pointerdown", handlePointerMove);
+      canvas.addEventListener("pointerdown", handlePointerDown);
       canvas.addEventListener("pointerleave", handlePointerLeave);
       speedSlider.addEventListener("input", handleSpeedInput);
+      speedInput.addEventListener("input", handleSpeedInput);
       arenaSlider.addEventListener("input", handleArenaInput);
       enemySpeedSlider.addEventListener("input", handleEnemySpeedInput);
+      enemySpeedInput.addEventListener("input", handleEnemySpeedInput);
       healthSlider.addEventListener("input", handleHealthInput);
       sizeSlider.addEventListener("input", handleSizeInput);
       attackModeToggle.addEventListener("input", handleAttackModeToggle);
@@ -543,6 +572,7 @@
           defeated: false,
         };
 
+        rebuildArena(player.q, player.r);
         spawnEnemy(state);
         return state;
       }
@@ -579,14 +609,18 @@
       }
 
       function handleSpeedInput(event) {
-        moveTickMs = Number(event.target.value);
+        moveTickMs = clampNumber(Number(event.target.value), 60, 900, moveTickMs);
         game.tickAccumulator = Math.min(game.tickAccumulator, moveTickMs);
+        speedSlider.value = String(moveTickMs);
+        speedInput.value = String(moveTickMs);
         game.message = `Bewegungstakt auf ${moveTickMs} ms gesetzt.`;
       }
 
       function handleEnemySpeedInput(event) {
-        enemyMoveTickMs = Number(event.target.value);
+        enemyMoveTickMs = clampNumber(Number(event.target.value), 80, 1200, enemyMoveTickMs);
         game.enemyTickAccumulator = Math.min(game.enemyTickAccumulator, enemyMoveTickMs);
+        enemySpeedSlider.value = String(enemyMoveTickMs);
+        enemySpeedInput.value = String(enemyMoveTickMs);
         game.message = `Gegner-Takt auf ${enemyMoveTickMs} ms gesetzt.`;
       }
 
@@ -603,19 +637,11 @@
       function handleArenaInput(event) {
         arenaTargetFields = Number(event.target.value);
         arenaRadius = getRadiusForFieldTarget(arenaTargetFields);
-        rebuildArena();
-
-        if (!isArenaCell(game.player.q, game.player.r)) {
-          game.player.q = 0;
-          game.player.r = 0;
-          game.player.fromQ = 0;
-          game.player.fromR = 0;
-          game.player.anim = 1;
-        }
+        rebuildArena(game.player.q, game.player.r);
 
         relocateEnemies();
 
-        game.message = `Arena auf ${getArenaFieldCount(arenaRadius)} Felder gesetzt.`;
+        game.message = `Weltfenster auf ${getArenaFieldCount(arenaRadius)} Felder gesetzt.`;
       }
 
       function handleSizeInput(event) {
@@ -635,27 +661,48 @@
 
       function handlePointerMove(event) {
         const point = pointerToWorld(event);
+        game.pointerActive = true;
+        game.pointerX = point.x;
+        game.pointerY = point.y;
+        updatePointerDirection(point, true);
+      }
+
+      function handlePointerDown(event) {
+        const point = pointerToWorld(event);
+        game.pointerActive = true;
+        game.pointerX = point.x;
+        game.pointerY = point.y;
+        updatePointerDirection(point, false);
+
+        if (event.button === 0) {
+          event.preventDefault();
+          performDash();
+        }
+      }
+
+      function handlePointerLeave() {
+        game.pointerActive = false;
+      }
+
+      function updatePointerDirection(point, writeMessage) {
         const playerPos = actorPosition(game.player);
         const deltaX = point.x - playerPos.x;
         const deltaY = point.y - playerPos.y;
         const distance = Math.hypot(deltaX, deltaY);
 
-        game.pointerActive = true;
-        game.pointerX = point.x;
-        game.pointerY = point.y;
-
         if (distance < hexSize * 0.42) {
-          return;
+          return false;
         }
 
         const directionIndex = getDirectionFromVector(deltaX, deltaY);
         game.player.queuedDir = directionIndex;
         game.player.face = directionIndex;
-        game.message = `Richtung gesetzt: ${DIRECTIONS[directionIndex].name}.`;
-      }
 
-      function handlePointerLeave() {
-        game.pointerActive = false;
+        if (writeMessage) {
+          game.message = `Richtung gesetzt: ${DIRECTIONS[directionIndex].name}.`;
+        }
+
+        return true;
       }
 
       function performAttack() {
@@ -694,6 +741,42 @@
         game.message = roundAttackEnabled
           ? `${hitIds.size} Gegner durch Rundumschlag getroffen.`
           : `Treffer nach ${DIRECTIONS[player.face].name}. Gegner ausgeschaltet.`;
+      }
+
+      function performDash() {
+        if (game.defeated) {
+          return;
+        }
+
+        const player = game.player;
+        const direction = DIRECTIONS[player.face];
+        const longTarget = {
+          q: player.q + direction.q * 2,
+          r: player.r + direction.r * 2,
+        };
+        const shortTarget = {
+          q: player.q + direction.q,
+          r: player.r + direction.r,
+        };
+
+        if (canDashLandOn(longTarget.q, longTarget.r)) {
+          const tileEffectTriggered = movePlayerInstantly(longTarget.q, longTarget.r);
+          if (!tileEffectTriggered) {
+            game.message = `Dash nach ${direction.name} ueber zwei Felder.`;
+          }
+          return;
+        }
+
+        if (canDashLandOn(shortTarget.q, shortTarget.r)) {
+          const tileEffectTriggered = movePlayerInstantly(shortTarget.q, shortTarget.r);
+          if (!tileEffectTriggered) {
+            game.message = `Kurzer Dash nach ${direction.name}.`;
+          }
+          return;
+        }
+
+        game.blockedFlash = 1;
+        game.message = "Dash blockiert. Kein freies Landefeld in dieser Richtung.";
       }
 
       function frame(now) {
@@ -760,25 +843,39 @@
         const targetR = player.r + direction.r;
 
         if (isWalkable(targetQ, targetR)) {
-          player.fromQ = player.q;
-          player.fromR = player.r;
-          player.q = targetQ;
-          player.r = targetR;
-          player.anim = 0;
-          game.message = `Schritt nach ${direction.name}.`;
+          const tileEffectTriggered = movePlayerInstantly(targetQ, targetR);
+          if (!tileEffectTriggered) {
+            game.message = `Schritt nach ${direction.name}.`;
+          }
         } else if (isEnemyAt(targetQ, targetR)) {
           game.blockedFlash = 1;
           game.message = "Der Gegner blockiert das nächste Feld.";
         } else {
           game.blockedFlash = 1;
-          game.message = "Rand erreicht. Der nächste Schritt in diese Richtung ist nicht möglich.";
+          game.message = `Weg blockiert durch ${getTile(targetQ, targetR).name}.`;
         }
 
         game.tickPulse = 1;
       }
 
       function isWalkable(q, r) {
-        return isArenaCell(q, r) && !isEnemyAt(q, r);
+        return isTilePassable(getTile(q, r)) && !isEnemyAt(q, r);
+      }
+
+      function canDashLandOn(q, r) {
+        return isTilePassable(getTile(q, r)) && !isEnemyAt(q, r);
+      }
+
+      function movePlayerInstantly(q, r) {
+        game.player.fromQ = game.player.q;
+        game.player.fromR = game.player.r;
+        game.player.q = q;
+        game.player.r = r;
+        game.player.anim = 0;
+        rebuildArena(game.player.q, game.player.r);
+        const tileEffectTriggered = applyPlayerTileEffect();
+        game.tickPulse = 1;
+        return tileEffectTriggered;
       }
 
       function isArenaCell(q, r) {
@@ -793,13 +890,136 @@
         return game.enemies.find((enemy) => enemy.q === q && enemy.r === r) || null;
       }
 
-      function rebuildArena() {
+      function getTile(q, r) {
+        const tileKey = keyOf(q, r);
+
+        if (!tileCache.has(tileKey)) {
+          tileCache.set(tileKey, createTile(q, r));
+        }
+
+        return tileCache.get(tileKey);
+      }
+
+      function createTile(q, r) {
+        const originDistance = hexDistance({ q: 0, r: 0 }, { q, r });
+        const cluster = sampleTileNoise(q, r, 17);
+        const detail = sampleTileNoise(q, r, 53);
+        const accent = sampleTileNoise(q, r, 91);
+
+        if (originDistance <= START_CLEAR_RADIUS) {
+          return {
+            kind: "floor",
+            name: "Boden",
+            passable: true,
+            spawnable: true,
+            base: 0.62 + accent * 0.08,
+          };
+        }
+
+        if (cluster > 0.8) {
+          return {
+            kind: "water",
+            name: "Wasser",
+            passable: false,
+            spawnable: false,
+            base: 0.42 + accent * 0.1,
+          };
+        }
+
+        if (cluster < 0.19) {
+          return {
+            kind: "rock",
+            name: "Fels",
+            passable: false,
+            spawnable: false,
+            base: 0.45 + accent * 0.12,
+          };
+        }
+
+        if (detail > 0.86 && cluster > 0.34 && cluster < 0.72) {
+          return {
+            kind: "pillar",
+            name: "Säule",
+            passable: false,
+            spawnable: false,
+            base: 0.48 + accent * 0.08,
+          };
+        }
+
+        if (detail < 0.18 && cluster > 0.38 && cluster < 0.66) {
+          return {
+            kind: "bramble",
+            name: "Dornen",
+            passable: true,
+            spawnable: false,
+            damage: 1,
+            base: 0.52 + accent * 0.06,
+          };
+        }
+
+        return {
+          kind: "floor",
+          name: "Boden",
+          passable: true,
+          spawnable: true,
+          base: 0.58 + accent * 0.1,
+        };
+      }
+
+      function sampleTileNoise(q, r, seed) {
+        const samples = [
+          randomHex(q, r, seed),
+          randomHex(q + 1, r, seed),
+          randomHex(q, r + 1, seed),
+          randomHex(q - 1, r + 1, seed),
+        ];
+
+        return samples.reduce((sum, value) => sum + value, 0) / samples.length;
+      }
+
+      function randomHex(q, r, seed) {
+        let value = Math.imul(q, 374761393) ^ Math.imul(r, 668265263) ^ Math.imul(seed, 1274126177);
+        value = Math.imul(value ^ (value >>> 13), 1274126177);
+        value ^= value >>> 16;
+        return (value >>> 0) / 4294967295;
+      }
+
+      function isTilePassable(tile) {
+        return tile.passable;
+      }
+
+      function isTileSpawnable(tile) {
+        return tile.spawnable;
+      }
+
+      function applyPlayerTileEffect() {
+        const tile = getTile(game.player.q, game.player.r);
+
+        if (tile.kind !== "bramble" || game.player.invulnerability > 0) {
+          return;
+        }
+
+        game.player.health = Math.max(0, game.player.health - (tile.damage || 1));
+        game.player.invulnerability = PLAYER_HIT_COOLDOWN;
+        game.player.hitFlash = 1;
+
+        if (game.player.health <= 0) {
+          game.defeated = true;
+          game.message = "Du bist in Dornen gefallen und wurdest besiegt. Drücke R für einen Neustart.";
+          return true;
+        }
+
+        game.message = `Dornen! Noch ${game.player.health} Leben.`;
+        return true;
+      }
+
+      function rebuildArena(centerQ = 0, centerR = 0) {
         arenaCells.clear();
 
-        for (let q = -arenaRadius; q <= arenaRadius; q += 1) {
-          for (let r = -arenaRadius; r <= arenaRadius; r += 1) {
-            if (hexDistance({ q: 0, r: 0 }, { q, r }) <= arenaRadius) {
-              arenaCells.add(keyOf(q, r));
+        for (let qOffset = -arenaRadius; qOffset <= arenaRadius; qOffset += 1) {
+          for (let rOffset = -arenaRadius; rOffset <= arenaRadius; rOffset += 1) {
+            if (hexDistance({ q: 0, r: 0 }, { q: qOffset, r: rOffset }) <= arenaRadius) {
+              arenaCells.add(keyOf(centerQ + qOffset, centerR + rOffset));
             }
           }
         }
@@ -829,6 +1049,7 @@
           return false;
         }
 
+        rebuildArena(state.player.q, state.player.r);
         const spawn = getEnemySpawn(state.player, state.enemies);
 
         if (!spawn) {
@@ -854,8 +1075,13 @@
         for (const tileKey of arenaCells) {
           const [qText, rText] = tileKey.split(",");
           const candidate = { q: Number(qText), r: Number(rText) };
+          const tile = getTile(candidate.q, candidate.r);
 
-          if (isSameCell(candidate, reference) || enemies.some((enemy) => isSameCell(enemy, candidate))) {
+          if (
+            isSameCell(candidate, reference) ||
+            enemies.some((enemy) => isSameCell(enemy, candidate)) ||
+            !isTileSpawnable(tile)
+          ) {
             continue;
           }
 
@@ -903,10 +1129,11 @@
       function render() {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
+        const camera = actorPosition(game.player);
 
         ctx.clearRect(0, 0, width, height);
         ctx.save();
-        ctx.translate(width / 2, height / 2);
+        ctx.translate(width / 2 - camera.x, height / 2 - camera.y);
 
         drawArena();
         drawQueuedDirection();
@@ -920,24 +1147,18 @@
       }
 
       function drawArena() {
+        const center = actorPosition(game.player);
+
         for (const tileKey of arenaCells) {
           const [qText, rText] = tileKey.split(",");
           const q = Number(qText);
           const r = Number(rText);
+          const tile = getTile(q, r);
           const { x, y } = axialToPixel(q, r);
-          const distance = hexDistance({ q: 0, r: 0 }, { q, r });
-
-          drawHex(
-            x,
-            y,
-            hexSize - 1,
-            `rgba(24, 43, 51, ${0.74 - distance * 0.05})`,
-            "rgba(143, 197, 189, 0.17)",
-            1.5
-          );
+          drawTile(tile, x, y);
         }
 
-        drawHex(0, 0, hexSize * (arenaRadius + 0.55), "transparent", `rgba(244, 183, 77, ${0.2 + game.tickPulse * 0.16})`, 2);
+        drawHex(center.x, center.y, hexSize * (arenaRadius + 0.55), "transparent", `rgba(244, 183, 77, ${0.14 + game.tickPulse * 0.12})`, 2);
       }
 
       function drawQueuedDirection() {
@@ -1091,7 +1312,7 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         ctx.font = '600 14px "Trebuchet MS", sans-serif';
         ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
-        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Space greift an, Gegnerdruck reduziert jetzt dein Leben.", 28, height - 28);
+        ctx.fillText("Dynamische Welt, Hindernisse, Dash auf Linksklick und feinere Taktsteuerung sind aktiv.", 28, height - 28);
         ctx.restore();
       }
 
@@ -1123,8 +1344,10 @@
           ? game.message
           : `${game.message} Naechster Gegner: ${nearestEnemyDistance} Felder.`;
         speedValue.textContent = `${moveTickMs} ms`;
-        arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder`;
+        speedInput.value = `${moveTickMs}`;
+        arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder sichtbar`;
         enemySpeedValue.textContent = `${enemyMoveTickMs} ms`;
+        enemySpeedInput.value = `${enemyMoveTickMs}`;
         healthValue.textContent = `${playerMaxHealth}`;
         sizeValue.textContent = `${hexSize} px`;
         attackModeValue.textContent = roundAttackEnabled ? "Rundumschlag" : "Frontschlag";
@@ -1147,10 +1370,66 @@
 
       function pointerToWorld(event) {
         const bounds = canvas.getBoundingClientRect();
+        const camera = actorPosition(game.player);
         return {
-          x: event.clientX - bounds.left - bounds.width / 2,
-          y: event.clientY - bounds.top - bounds.height / 2,
+          x: event.clientX - bounds.left - bounds.width / 2 + camera.x,
+          y: event.clientY - bounds.top - bounds.height / 2 + camera.y,
         };
+      }
+
+      function drawTile(tile, x, y) {
+        let fillStyle = `rgba(24, 43, 51, ${tile.base})`;
+        let strokeStyle = "rgba(143, 197, 189, 0.17)";
+        let lineWidth = 1.5;
+
+        if (tile.kind === "water") {
+          fillStyle = `rgba(36, 88, 123, ${0.58 + tile.base * 0.16})`;
+          strokeStyle = "rgba(152, 214, 255, 0.22)";
+          lineWidth = 1.8;
+        } else if (tile.kind === "rock") {
+          fillStyle = `rgba(78, 87, 93, ${0.58 + tile.base * 0.14})`;
+          strokeStyle = "rgba(226, 236, 237, 0.12)";
+          lineWidth = 1.8;
+        } else if (tile.kind === "pillar") {
+          fillStyle = `rgba(94, 77, 55, ${0.62 + tile.base * 0.12})`;
+          strokeStyle = "rgba(241, 210, 163, 0.16)";
+          lineWidth = 1.8;
+        } else if (tile.kind === "bramble") {
+          fillStyle = `rgba(38, 79, 51, ${0.58 + tile.base * 0.12})`;
+          strokeStyle = "rgba(134, 207, 144, 0.18)";
+          lineWidth = 1.6;
+        }
+
+        drawHex(x, y, hexSize - 1, fillStyle, strokeStyle, lineWidth);
+
+        if (tile.kind === "water") {
+          ctx.beginPath();
+          ctx.arc(x, y, hexSize * 0.24, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(181, 230, 255, 0.15)";
+          ctx.fill();
+        } else if (tile.kind === "rock") {
+          ctx.beginPath();
+          ctx.arc(x, y, hexSize * 0.18, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+          ctx.fill();
+        } else if (tile.kind === "pillar") {
+          ctx.beginPath();
+          ctx.arc(x, y, hexSize * 0.2, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(245, 222, 193, 0.18)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(37, 22, 7, 0.28)";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        } else if (tile.kind === "bramble") {
+          ctx.beginPath();
+          ctx.moveTo(x - hexSize * 0.16, y - hexSize * 0.16);
+          ctx.lineTo(x + hexSize * 0.16, y + hexSize * 0.16);
+          ctx.moveTo(x + hexSize * 0.16, y - hexSize * 0.16);
+          ctx.lineTo(x - hexSize * 0.16, y + hexSize * 0.16);
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(191, 255, 187, 0.24)";
+          ctx.stroke();
+        }
       }
 
       function drawHex(x, y, radius, fillStyle, strokeStyle, lineWidth) {
@@ -1196,6 +1475,14 @@
         }
 
         return bestIndex;
+      }
+
+      function clampNumber(value, min, max, fallback) {
+        if (!Number.isFinite(value)) {
+          return fallback;
+        }
+
+        return Math.max(min, Math.min(max, value));
       }
 
       function easeOutCubic(value) {
@@ -1277,8 +1564,9 @@
             const direction = DIRECTIONS[index];
             const targetQ = enemy.q + direction.q;
             const targetR = enemy.r + direction.r;
+            const tile = getTile(targetQ, targetR);
 
-            if (!isArenaCell(targetQ, targetR)) {
+            if (!isTilePassable(tile)) {
               continue;
             }
 
