@@ -301,9 +301,8 @@
         <span class="eyebrow">Movement Prototype</span>
         <h1>Hexabattle</h1>
         <p class="intro">
-          Erste Testversion für Bewegungsgefühl und Raumdruck: eine prozedural generierte Hex-Welt,
-          verschiedene Hindernisse, mehrere einfache Gegner, Nahkampf und automatische Schritte im
-          festen Takt.
+          Erste Testversion für Bewegungsgefühl und Raumdruck: eine feste Hex-Arena mit Hindernissen,
+          mehreren einfachen Gegnern, Nahkampf und automatischen Schritten im festen Takt.
         </p>
 
         <div class="stats">
@@ -351,7 +350,7 @@
 
         <div class="slider-block">
           <div class="slider-row">
-            <div class="section-title">Weltfenster</div>
+            <div class="section-title">Arena</div>
             <div class="slider-value" id="arenaValue">91 Felder</div>
           </div>
           <input class="slider-input" id="arenaSlider" type="range" min="7" max="500" step="1" value="91" />
@@ -437,7 +436,7 @@
 
         <div class="status-box">
           <strong>Prototype Focus</strong>
-          <p id="statusText">Teste eine dynamisch generierte Welt mit Hindernissen, Lebenswert, Dash, Nahkampf und optional sichtbarer Gegnerbewegung.</p>
+          <p id="statusText">Teste eine feste Arena mit Hindernissen, Lebenswert, Dash, Nahkampf und optional sichtbarer Gegnerbewegung.</p>
         </div>
 
         <p class="footer-note">
@@ -486,6 +485,13 @@
       const MAX_ENEMIES = 12;
       const PLAYER_HIT_COOLDOWN = 0.5;
       const START_CLEAR_RADIUS = 2;
+      const EDGE_TILE = {
+        kind: "edge",
+        name: "Arenarand",
+        passable: false,
+        spawnable: false,
+        base: 0.2,
+      };
 
       const DIRECTIONS = [
         { q: 1, r: 0, name: "Ost", key: "E" },
@@ -572,7 +578,7 @@
           defeated: false,
         };
 
-        rebuildArena(player.q, player.r);
+        rebuildArena();
         spawnEnemy(state);
         return state;
       }
@@ -637,11 +643,19 @@
       function handleArenaInput(event) {
         arenaTargetFields = Number(event.target.value);
         arenaRadius = getRadiusForFieldTarget(arenaTargetFields);
-        rebuildArena(game.player.q, game.player.r);
+        rebuildArena();
+
+        if (!isArenaCell(game.player.q, game.player.r)) {
+          game.player.q = 0;
+          game.player.r = 0;
+          game.player.fromQ = 0;
+          game.player.fromR = 0;
+          game.player.anim = 1;
+        }
 
         relocateEnemies();
 
-        game.message = `Weltfenster auf ${getArenaFieldCount(arenaRadius)} Felder gesetzt.`;
+        game.message = `Arena auf ${getArenaFieldCount(arenaRadius)} Felder gesetzt.`;
       }
 
       function handleSizeInput(event) {
@@ -872,7 +886,6 @@
         game.player.q = q;
         game.player.r = r;
         game.player.anim = 0;
-        rebuildArena(game.player.q, game.player.r);
         const tileEffectTriggered = applyPlayerTileEffect();
         game.tickPulse = 1;
         return tileEffectTriggered;
@@ -891,6 +904,10 @@
       }
 
       function getTile(q, r) {
+        if (!isArenaCell(q, r)) {
+          return EDGE_TILE;
+        }
+
         const tileKey = keyOf(q, r);
 
         if (!tileCache.has(tileKey)) {
@@ -1013,13 +1030,13 @@
         return true;
       }
 
-      function rebuildArena(centerQ = 0, centerR = 0) {
+      function rebuildArena() {
         arenaCells.clear();
 
-        for (let qOffset = -arenaRadius; qOffset <= arenaRadius; qOffset += 1) {
-          for (let rOffset = -arenaRadius; rOffset <= arenaRadius; rOffset += 1) {
-            if (hexDistance({ q: 0, r: 0 }, { q: qOffset, r: rOffset }) <= arenaRadius) {
-              arenaCells.add(keyOf(centerQ + qOffset, centerR + rOffset));
+        for (let q = -arenaRadius; q <= arenaRadius; q += 1) {
+          for (let r = -arenaRadius; r <= arenaRadius; r += 1) {
+            if (hexDistance({ q: 0, r: 0 }, { q, r }) <= arenaRadius) {
+              arenaCells.add(keyOf(q, r));
             }
           }
         }
@@ -1049,7 +1066,6 @@
           return false;
         }
 
-        rebuildArena(state.player.q, state.player.r);
         const spawn = getEnemySpawn(state.player, state.enemies);
 
         if (!spawn) {
@@ -1129,11 +1145,10 @@
       function render() {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
-        const camera = actorPosition(game.player);
 
         ctx.clearRect(0, 0, width, height);
         ctx.save();
-        ctx.translate(width / 2 - camera.x, height / 2 - camera.y);
+        ctx.translate(width / 2, height / 2);
 
         drawArena();
         drawQueuedDirection();
@@ -1147,7 +1162,7 @@
       }
 
       function drawArena() {
-        const center = actorPosition(game.player);
+        const center = axialToPixel(0, 0);
 
         for (const tileKey of arenaCells) {
           const [qText, rText] = tileKey.split(",");
@@ -1312,7 +1327,7 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         ctx.font = '600 14px "Trebuchet MS", sans-serif';
         ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
-        ctx.fillText("Dynamische Welt, Hindernisse, Dash auf Linksklick und feinere Taktsteuerung sind aktiv.", 28, height - 28);
+        ctx.fillText("Feste Arena, Hindernisse, Dash auf Linksklick und feinere Taktsteuerung sind aktiv.", 28, height - 28);
         ctx.restore();
       }
 
@@ -1345,7 +1360,7 @@
           : `${game.message} Naechster Gegner: ${nearestEnemyDistance} Felder.`;
         speedValue.textContent = `${moveTickMs} ms`;
         speedInput.value = `${moveTickMs}`;
-        arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder sichtbar`;
+        arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder`;
         enemySpeedValue.textContent = `${enemyMoveTickMs} ms`;
         enemySpeedInput.value = `${enemyMoveTickMs}`;
         healthValue.textContent = `${playerMaxHealth}`;
@@ -1370,10 +1385,9 @@
 
       function pointerToWorld(event) {
         const bounds = canvas.getBoundingClientRect();
-        const camera = actorPosition(game.player);
         return {
-          x: event.clientX - bounds.left - bounds.width / 2 + camera.x,
-          y: event.clientY - bounds.top - bounds.height / 2 + camera.y,
+          x: event.clientX - bounds.left - bounds.width / 2,
+          y: event.clientY - bounds.top - bounds.height / 2,
         };
       }
 
@@ -1398,6 +1412,10 @@
           fillStyle = `rgba(38, 79, 51, ${0.58 + tile.base * 0.12})`;
           strokeStyle = "rgba(134, 207, 144, 0.18)";
           lineWidth = 1.6;
+        } else if (tile.kind === "edge") {
+          fillStyle = `rgba(9, 17, 22, ${0.74 + tile.base * 0.08})`;
+          strokeStyle = "rgba(244, 183, 77, 0.18)";
+          lineWidth = 1.8;
         }
 
         drawHex(x, y, hexSize - 1, fillStyle, strokeStyle, lineWidth);
