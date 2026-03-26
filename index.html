@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hexabattle Movement Prototype</title>
+    <style>
+      :root {
+        --bg: #091116;
+        --bg-deep: #0f1d24;
+        --panel: rgba(12, 22, 28, 0.86);
+        --panel-border: rgba(143, 197, 189, 0.14);
+        --text: #eff7f1;
+        --muted: #9bb6b2;
+        --accent: #f4b74d;
+        --accent-soft: rgba(244, 183, 77, 0.18);
+        --teal: #77e0cd;
+        --shadow: rgba(0, 0, 0, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top, rgba(244, 183, 77, 0.12), transparent 24%),
+          radial-gradient(circle at 20% 20%, rgba(119, 224, 205, 0.14), transparent 22%),
+          linear-gradient(160deg, var(--bg) 0%, var(--bg-deep) 52%, #081116 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 48px 48px;
+        opacity: 0.12;
+        pointer-events: none;
+      }
+
+      .shell {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) 340px;
+        gap: 20px;
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .stage,
+      .panel {
+        position: relative;
+        overflow: hidden;
+        border-radius: 24px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel);
+        box-shadow: 0 24px 56px var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      .stage::before,
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%);
+        pointer-events: none;
+      }
+
+      .stage {
+        min-height: 72vh;
+      }
+
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 22px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        width: fit-content;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(119, 224, 205, 0.12);
+        color: var(--teal);
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 2vw + 1rem, 3rem);
+        line-height: 0.95;
+      }
+
+      .intro,
+      .footer-note,
+      .status-box p,
+      .control span {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stat {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .stat-label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+      }
+
+      .section-title {
+        margin: 4px 0 8px;
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .meter {
+        height: 10px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .meter-fill {
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent), #ffde93);
+        transition: width 80ms linear;
+      }
+
+      .controls {
+        display: grid;
+        gap: 10px;
+      }
+
+      .control {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .keycap {
+        min-width: 52px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        text-align: center;
+        font-weight: 700;
+        line-height: 1.3;
+        color: #081116;
+        background: linear-gradient(180deg, #f7fafb, #dae8e4);
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
+      }
+
+      .control strong,
+      .status-box strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .status-box {
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(244, 183, 77, 0.12), rgba(244, 183, 77, 0.03));
+        border: 1px solid rgba(244, 183, 77, 0.18);
+      }
+
+      .footer-note {
+        margin-top: auto;
+        font-size: 0.9rem;
+      }
+
+      @media (max-width: 980px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .stage {
+          min-height: 62vh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="stage">
+        <canvas id="game" aria-label="Hexabattle Spielfeld"></canvas>
+      </section>
+
+      <aside class="panel">
+        <span class="eyebrow">Movement Prototype</span>
+        <h1>Hexabattle</h1>
+        <p class="intro">
+          Erste Testversion nur für das Bewegungsgefühl: ein Spieler auf einem Hexfeld-Raster, eine
+          gewählte Richtung und automatische Schritte im festen Takt.
+        </p>
+
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-label">Richtung</span>
+            <div class="stat-value" id="directionText">-</div>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Tick</span>
+            <div class="stat-value" id="tickText">280 ms</div>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Position</span>
+            <div class="stat-value" id="positionText">q 0 / r 0</div>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Status</span>
+            <div class="stat-value" id="stateText">Läuft</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">Nächster Schritt</div>
+          <div class="meter"><div class="meter-fill" id="tickMeter"></div></div>
+        </div>
+
+        <div class="controls">
+          <div class="control">
+            <div class="keycap">Q W E<br />A S D</div>
+            <div>
+              <strong>Richtung setzen</strong>
+              <span>Du gibst nur die nächste Laufrichtung vor. Der Spieler läuft dann im festen Takt automatisch weiter.</span>
+            </div>
+          </div>
+          <div class="control">
+            <div class="keycap">R</div>
+            <div>
+              <strong>Zur Mitte</strong>
+              <span>Setzt den Spieler zurück auf das Zentrum, um eine Bewegungs-Idee schnell erneut zu testen.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-box">
+          <strong>Prototype Focus</strong>
+          <p id="statusText">Teste nur, ob sich Richtungswahl und getaktete Hex-Bewegung sauber und gut lesbar anfühlen.</p>
+        </div>
+
+        <p class="footer-note">
+          Alles steckt in einer einzigen Datei und läuft direkt lokal im Browser.
+        </p>
+      </aside>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+
+      const directionText = document.getElementById("directionText");
+      const tickText = document.getElementById("tickText");
+      const positionText = document.getElementById("positionText");
+      const stateText = document.getElementById("stateText");
+      const tickMeter = document.getElementById("tickMeter");
+      const statusText = document.getElementById("statusText");
+
+      const HEX_RADIUS = 5;
+      const HEX_SIZE = 42;
+      const MOVE_TICK_MS = 280;
+
+      const DIRECTIONS = [
+        { q: 1, r: 0, name: "Ost", key: "E" },
+        { q: 1, r: -1, name: "Nordost", key: "W" },
+        { q: 0, r: -1, name: "Nordwest", key: "Q" },
+        { q: -1, r: 0, name: "West", key: "A" },
+        { q: -1, r: 1, name: "Südwest", key: "S" },
+        { q: 0, r: 1, name: "Südost", key: "D" },
+      ];
+
+      const DIRECTION_KEYS = {
+        KeyE: 0,
+        KeyW: 1,
+        KeyQ: 2,
+        KeyA: 3,
+        KeyS: 4,
+        KeyD: 5,
+      };
+
+      const arenaCells = new Set();
+
+      for (let q = -HEX_RADIUS; q <= HEX_RADIUS; q += 1) {
+        for (let r = -HEX_RADIUS; r <= HEX_RADIUS; r += 1) {
+          if (hexDistance({ q: 0, r: 0 }, { q, r }) <= HEX_RADIUS) {
+            arenaCells.add(keyOf(q, r));
+          }
+        }
+      }
+
+      let pixelRatio = window.devicePixelRatio || 1;
+      let lastTime = performance.now();
+      let game = createGame();
+
+      window.addEventListener("resize", resizeCanvas);
+      window.addEventListener("keydown", handleKeyDown);
+
+      resizeCanvas();
+      requestAnimationFrame(frame);
+
+      function createGame() {
+        return {
+          player: {
+            q: 0,
+            r: 0,
+            fromQ: 0,
+            fromR: 0,
+            anim: 1,
+            queuedDir: 0,
+            face: 0,
+          },
+          tickAccumulator: 0,
+          tickPulse: 0,
+          message: "Wähle eine Richtung und beobachte, wie der Spieler im Takt über das Hex-Raster läuft.",
+          blockedFlash: 0,
+        };
+      }
+
+      function resetGame() {
+        game = createGame();
+      }
+
+      function handleKeyDown(event) {
+        if (event.code in DIRECTION_KEYS) {
+          game.player.queuedDir = DIRECTION_KEYS[event.code];
+          game.player.face = game.player.queuedDir;
+          game.message = `Richtung gesetzt: ${DIRECTIONS[game.player.queuedDir].name}.`;
+          return;
+        }
+
+        if (event.code === "KeyR") {
+          resetGame();
+        }
+      }
+
+      function resizeCanvas() {
+        const bounds = canvas.getBoundingClientRect();
+        pixelRatio = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(bounds.width * pixelRatio));
+        canvas.height = Math.max(1, Math.floor(bounds.height * pixelRatio));
+        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      }
+
+      function frame(now) {
+        const deltaMs = Math.min(32, now - lastTime);
+        lastTime = now;
+
+        update(deltaMs / 1000, deltaMs);
+        render();
+        updateHud();
+
+        requestAnimationFrame(frame);
+      }
+
+      function update(deltaSeconds, deltaMs) {
+        game.player.anim = Math.min(1, game.player.anim + deltaSeconds * 6.5);
+        game.tickAccumulator += deltaMs;
+        game.tickPulse = Math.max(0, game.tickPulse - deltaSeconds * 2.4);
+        game.blockedFlash = Math.max(0, game.blockedFlash - deltaSeconds * 3.5);
+
+        while (game.tickAccumulator >= MOVE_TICK_MS) {
+          game.tickAccumulator -= MOVE_TICK_MS;
+          runTick();
+        }
+      }
+
+      function runTick() {
+        const player = game.player;
+        const direction = DIRECTIONS[player.queuedDir];
+        const targetQ = player.q + direction.q;
+        const targetR = player.r + direction.r;
+
+        if (isWalkable(targetQ, targetR)) {
+          player.fromQ = player.q;
+          player.fromR = player.r;
+          player.q = targetQ;
+          player.r = targetR;
+          player.anim = 0;
+          game.message = `Schritt nach ${direction.name}.`;
+        } else {
+          game.blockedFlash = 1;
+          game.message = "Rand erreicht. Der nächste Schritt in diese Richtung ist nicht möglich.";
+        }
+
+        game.tickPulse = 1;
+      }
+
+      function isWalkable(q, r) {
+        return arenaCells.has(keyOf(q, r));
+      }
+
+      function render() {
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+
+        drawArena();
+        drawQueuedDirection();
+        drawPlayer();
+        drawOverlayText(width, height);
+
+        ctx.restore();
+      }
+
+      function drawArena() {
+        for (const tileKey of arenaCells) {
+          const [qText, rText] = tileKey.split(",");
+          const q = Number(qText);
+          const r = Number(rText);
+          const { x, y } = axialToPixel(q, r);
+          const distance = hexDistance({ q: 0, r: 0 }, { q, r });
+
+          drawHex(
+            x,
+            y,
+            HEX_SIZE - 1,
+            `rgba(24, 43, 51, ${0.74 - distance * 0.05})`,
+            "rgba(143, 197, 189, 0.17)",
+            1.5
+          );
+        }
+
+        drawHex(0, 0, HEX_SIZE * (HEX_RADIUS + 0.55), "transparent", `rgba(244, 183, 77, ${0.2 + game.tickPulse * 0.16})`, 2);
+      }
+
+      function drawQueuedDirection() {
+        const player = game.player;
+        const direction = DIRECTIONS[player.queuedDir];
+        const targetQ = player.q + direction.q;
+        const targetR = player.r + direction.r;
+
+        if (!arenaCells.has(keyOf(targetQ, targetR))) {
+          return;
+        }
+
+        const target = axialToPixel(targetQ, targetR);
+        drawHex(
+          target.x,
+          target.y,
+          HEX_SIZE * 0.68,
+          "rgba(244, 183, 77, 0.08)",
+          "rgba(244, 183, 77, 0.5)",
+          2
+        );
+      }
+
+      function drawPlayer() {
+        const player = game.player;
+        const { x, y } = actorPosition(player);
+        const angle = directionToAngle(player.face);
+
+        if (game.tickPulse > 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, HEX_SIZE * (0.5 + game.tickPulse * 0.32), 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(119, 224, 205, ${0.08 + game.tickPulse * 0.1})`;
+          ctx.fill();
+        }
+
+        if (game.blockedFlash > 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, HEX_SIZE * 0.74, 0, Math.PI * 2);
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = `rgba(255, 122, 106, ${game.blockedFlash * 0.8})`;
+          ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.arc(x, y, HEX_SIZE * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = "#77e0cd";
+        ctx.fill();
+
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(angle) * HEX_SIZE * 0.58, y + Math.sin(angle) * HEX_SIZE * 0.58);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "#081116";
+        ctx.stroke();
+      }
+
+      function drawOverlayText(width, height) {
+        ctx.save();
+        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        ctx.font = '600 14px "Trebuchet MS", sans-serif';
+        ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
+        ctx.fillText("Q/W/E/A/S/D setzt die Richtung. Der Schritt kommt automatisch im Tick.", 28, height - 28);
+        ctx.restore();
+      }
+
+      function updateHud() {
+        const player = game.player;
+        const direction = DIRECTIONS[player.queuedDir];
+        const tickProgress = 1 - game.tickAccumulator / MOVE_TICK_MS;
+        const previewQ = player.q + direction.q;
+        const previewR = player.r + direction.r;
+        const movingState = isWalkable(previewQ, previewR) ? "Läuft" : "Am Rand";
+
+        directionText.textContent = `${direction.name} (${direction.key})`;
+        tickText.textContent = `${MOVE_TICK_MS} ms`;
+        positionText.textContent = `q ${player.q} / r ${player.r}`;
+        stateText.textContent = movingState;
+        tickMeter.style.width = `${Math.max(0, Math.min(1, tickProgress)) * 100}%`;
+        statusText.textContent = game.message;
+      }
+
+      function actorPosition(actor) {
+        const progress = easeOutCubic(actor.anim);
+        const q = actor.fromQ + (actor.q - actor.fromQ) * progress;
+        const r = actor.fromR + (actor.r - actor.fromR) * progress;
+        return axialToPixel(q, r);
+      }
+
+      function axialToPixel(q, r) {
+        return {
+          x: HEX_SIZE * Math.sqrt(3) * (q + r / 2),
+          y: HEX_SIZE * 1.5 * r,
+        };
+      }
+
+      function drawHex(x, y, radius, fillStyle, strokeStyle, lineWidth) {
+        ctx.beginPath();
+
+        for (let side = 0; side < 6; side += 1) {
+          const angle = Math.PI / 180 * (60 * side - 30);
+          const px = x + radius * Math.cos(angle);
+          const py = y + radius * Math.sin(angle);
+
+          if (side === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
+        }
+
+        ctx.closePath();
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = strokeStyle;
+        ctx.stroke();
+      }
+
+      function directionToAngle(directionIndex) {
+        const angles = [0, -Math.PI / 3, -2 * Math.PI / 3, Math.PI, 2 * Math.PI / 3, Math.PI / 3];
+        return angles[directionIndex];
+      }
+
+      function easeOutCubic(value) {
+        return 1 - Math.pow(1 - value, 3);
+      }
+
+      function keyOf(q, r) {
+        return `${q},${r}`;
+      }
+
+      function hexDistance(a, b) {
+        const dq = a.q - b.q;
+        const dr = a.r - b.r;
+        const ds = -a.q - a.r - (-b.q - b.r);
+        return (Math.abs(dq) + Math.abs(dr) + Math.abs(ds)) / 2;
+      }
+    </script>
+  </body>
+</html>
