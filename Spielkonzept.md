@@ -2,7 +2,7 @@
 
 ## Kurzbeschreibung
 
-**Hexabattle** ist ein Topdown-Spiel, dessen gesamte Welt aus Hexagon-Feldern besteht. Die Bewegung von Spieler und Gegnern läuft nicht frei, sondern rhythmisch und automatisch in festen Takten ab. Der spielerische Fokus liegt dadurch auf Richtungswahl, Timing und Positionierung.
+**Hexabattle** ist ein actionlastiges Topdown-Spiel, dessen gesamte Welt aus Hexagon-Feldern besteht. Die Bewegung von Spieler und Gegnern läuft nicht frei, sondern rhythmisch und automatisch in festen Takten ab. Der spielerische Fokus liegt auf schneller Richtungswahl, Positionierung und unmittelbaren Kampfentscheidungen.
 
 ## Grundidee
 
@@ -16,19 +16,20 @@
 
 ## Spielgefühl
 
-Das Spiel soll sich klar, taktisch und präzise anfühlen. Da alle Bewegungen an das Hexfeld-Raster und an einen festen Rhythmus gebunden sind, entsteht ein Mix aus Planung und Reaktion. Nicht schnelle Eingaben stehen im Mittelpunkt, sondern gute Entscheidungen im richtigen Moment.
+Das Spiel soll sich direkt, dynamisch und druckvoll anfühlen. Obwohl die Fortbewegung an das Hexfeld-Raster und an einen festen Rhythmus gebunden ist, soll der Kampf deutlich unmittelbarer wirken. Angriff und Verteidigung der Spielfigur sind im ersten Schritt unabhängig vom Bewegungstakt, wodurch schnelle Reaktionen und actionreiche Gefechte möglich bleiben.
 
 ## Kernregeln
 
 - Es gibt sechs mögliche Bewegungsrichtungen, passend zum Hexagon-Raster.
 - Bewegungen werden nicht frei gezogen, sondern schrittweise ausgeführt.
 - Jeder Schritt passiert synchron zum Spieltakt.
+- Angriff und Verteidigung der Spielfigur funktionieren im ersten Schritt unabhängig vom Takt der Bewegung.
 - Positionierung auf dem Spielfeld ist zentral für Erfolg oder Misserfolg.
 
 ## Mögliche Designrichtung
 
-Aus dieser Grundidee kann sich ein taktisches Action-Spiel oder ein rhythmusbasiertes Strategiespiel entwickeln. Besonders spannend ist die Kombination aus automatischer Bewegung, klaren Richtungsentscheidungen und der besonderen Geometrie eines Hexfeld-Spielfelds.
+Aus dieser Grundidee kann sich ein schnelles Action-Spiel mit taktischer Raumkontrolle entwickeln. Besonders spannend ist die Kombination aus getakteter Bewegung, freierer Kampfdynamik und der besonderen Geometrie eines Hexfeld-Spielfelds.
 
 ## Kurzform für später
 
-> Ein Topdown-Spiel auf einem Hexagon-Raster, in dem sich Spieler und Gegner automatisch in festen Takten bewegen. Der Spieler wählt dabei jeweils nur eine von sechs Richtungen und belegt genau ein Feld.
+> Ein actionlastiges Topdown-Spiel auf einem Hexagon-Raster, in dem sich Spieler und Gegner automatisch in festen Takten bewegen. Der Spieler wählt dabei jeweils nur eine von sechs Richtungen, belegt genau ein Feld und kämpft zunächst unabhängig vom Bewegungstakt.
