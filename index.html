@@ -291,6 +291,10 @@
 
         <div class="stats">
           <div class="stat">
+            <span class="stat-label">Leben</span>
+            <div class="stat-value" id="healthText">12 / 12</div>
+          </div>
+          <div class="stat">
             <span class="stat-label">Richtung</span>
             <div class="stat-value" id="directionText">-</div>
           </div>
@@ -343,6 +347,14 @@
 
         <div class="slider-block">
           <div class="slider-row">
+            <div class="section-title">Leben</div>
+            <div class="slider-value" id="healthValue">12</div>
+          </div>
+          <input class="slider-input" id="healthSlider" type="range" min="1" max="100" step="1" value="12" />
+        </div>
+
+        <div class="slider-block">
+          <div class="slider-row">
             <div class="section-title">Feldgröße</div>
             <div class="slider-value" id="sizeValue">42 px</div>
           </div>
@@ -356,6 +368,16 @@
               <div class="slider-value" id="attackModeValue">Frontschlag</div>
             </div>
             <input class="toggle-input" id="attackModeToggle" type="checkbox" />
+          </label>
+        </div>
+
+        <div class="slider-block">
+          <label class="toggle-row" for="enemyIntentToggle">
+            <div class="toggle-copy">
+              <div class="section-title">Gegner-Vorschau</div>
+              <div class="slider-value" id="enemyIntentValue">Aus</div>
+            </div>
+            <input class="toggle-input" id="enemyIntentToggle" type="checkbox" />
           </label>
         </div>
 
@@ -392,7 +414,7 @@
 
         <div class="status-box">
           <strong>Prototype Focus</strong>
-          <p id="statusText">Unendlich Leben ist aktiv. Teste Richtungswahl, Arena-Größe, Nahkampfmodi und steigenden Gegnerdruck.</p>
+          <p id="statusText">Teste Richtungswahl, Arena-Größe, Lebenswert, Nahkampfmodi und optional sichtbare Gegnerbewegung.</p>
         </div>
 
         <p class="footer-note">
@@ -405,6 +427,7 @@
       const canvas = document.getElementById("game");
       const ctx = canvas.getContext("2d");
 
+      const healthText = document.getElementById("healthText");
       const directionText = document.getElementById("directionText");
       const tickText = document.getElementById("tickText");
       const positionText = document.getElementById("positionText");
@@ -418,19 +441,25 @@
       const arenaValue = document.getElementById("arenaValue");
       const enemySpeedSlider = document.getElementById("enemySpeedSlider");
       const enemySpeedValue = document.getElementById("enemySpeedValue");
+      const healthSlider = document.getElementById("healthSlider");
+      const healthValue = document.getElementById("healthValue");
       const sizeSlider = document.getElementById("sizeSlider");
       const sizeValue = document.getElementById("sizeValue");
       const attackModeToggle = document.getElementById("attackModeToggle");
       const attackModeValue = document.getElementById("attackModeValue");
+      const enemyIntentToggle = document.getElementById("enemyIntentToggle");
+      const enemyIntentValue = document.getElementById("enemyIntentValue");
 
       const DEFAULT_ARENA_FIELDS = 91;
       const DEFAULT_HEX_SIZE = 42;
       const DEFAULT_MOVE_TICK_MS = 280;
       const DEFAULT_ENEMY_TICK_MS = 440;
+      const DEFAULT_PLAYER_HEALTH = 12;
       const ATTACK_COOLDOWN = 0.22;
       const ATTACK_ACTIVE = 0.12;
       const ENEMY_SPAWN_INTERVAL = 3.2;
       const MAX_ENEMIES = 12;
+      const PLAYER_HIT_COOLDOWN = 0.5;
 
       const DIRECTIONS = [
         { q: 1, r: 0, name: "Ost", key: "E" },
@@ -459,7 +488,9 @@
       let arenaTargetFields = DEFAULT_ARENA_FIELDS;
       let arenaRadius = getRadiusForFieldTarget(arenaTargetFields);
       let hexSize = DEFAULT_HEX_SIZE;
+      let playerMaxHealth = DEFAULT_PLAYER_HEALTH;
       let roundAttackEnabled = false;
+      let showEnemyIntent = false;
       rebuildArena();
       let game = createGame();
       window.addEventListener("resize", resizeCanvas);
@@ -470,8 +501,10 @@
       speedSlider.addEventListener("input", handleSpeedInput);
       arenaSlider.addEventListener("input", handleArenaInput);
       enemySpeedSlider.addEventListener("input", handleEnemySpeedInput);
+      healthSlider.addEventListener("input", handleHealthInput);
       sizeSlider.addEventListener("input", handleSizeInput);
       attackModeToggle.addEventListener("input", handleAttackModeToggle);
+      enemyIntentToggle.addEventListener("input", handleEnemyIntentToggle);
 
       resizeCanvas();
       requestAnimationFrame(frame);
@@ -488,6 +521,10 @@
           attackCooldown: 0,
           attackTimer: 0,
           attackMode: "front",
+          health: playerMaxHealth,
+          maxHealth: playerMaxHealth,
+          invulnerability: 0,
+          hitFlash: 0,
         };
 
         const state = {
@@ -503,6 +540,7 @@
           pointerActive: false,
           pointerX: 0,
           pointerY: 0,
+          defeated: false,
         };
 
         spawnEnemy(state);
@@ -552,6 +590,16 @@
         game.message = `Gegner-Takt auf ${enemyMoveTickMs} ms gesetzt.`;
       }
 
+      function handleHealthInput(event) {
+        playerMaxHealth = Number(event.target.value);
+        game.player.maxHealth = playerMaxHealth;
+        game.player.health = playerMaxHealth;
+        game.player.invulnerability = 0;
+        game.player.hitFlash = 0;
+        game.defeated = false;
+        game.message = `Leben auf ${playerMaxHealth} gesetzt.`;
+      }
+
       function handleArenaInput(event) {
         arenaTargetFields = Number(event.target.value);
         arenaRadius = getRadiusForFieldTarget(arenaTargetFields);
@@ -580,6 +628,11 @@
         game.message = roundAttackEnabled ? "Rundumschlag aktiviert." : "Frontschlag aktiviert.";
       }
 
+      function handleEnemyIntentToggle(event) {
+        showEnemyIntent = event.target.checked;
+        game.message = showEnemyIntent ? "Gegnerbewegung wird nun vorab angezeigt." : "Gegnervorschau deaktiviert.";
+      }
+
       function handlePointerMove(event) {
         const point = pointerToWorld(event);
         const playerPos = actorPosition(game.player);
@@ -606,7 +659,7 @@
       }
 
       function performAttack() {
-        if (game.player.attackCooldown > 0) {
+        if (game.defeated || game.player.attackCooldown > 0) {
           return;
         }
 
@@ -658,6 +711,8 @@
         game.player.anim = Math.min(1, game.player.anim + deltaSeconds * 6.5);
         game.player.attackCooldown = Math.max(0, game.player.attackCooldown - deltaSeconds);
         game.player.attackTimer = Math.max(0, game.player.attackTimer - deltaSeconds);
+        game.player.invulnerability = Math.max(0, game.player.invulnerability - deltaSeconds);
+        game.player.hitFlash = Math.max(0, game.player.hitFlash - deltaSeconds * 5);
         for (const enemy of game.enemies) {
           enemy.anim = Math.min(1, enemy.anim + deltaSeconds * 6.5);
         }
@@ -672,12 +727,12 @@
           runTick();
         }
 
-        while (game.enemyTickAccumulator >= enemyMoveTickMs) {
+        while (!game.defeated && game.enemyTickAccumulator >= enemyMoveTickMs) {
           game.enemyTickAccumulator -= enemyMoveTickMs;
           moveEnemies();
         }
 
-        while (game.spawnAccumulator >= ENEMY_SPAWN_INTERVAL) {
+        while (!game.defeated && game.spawnAccumulator >= ENEMY_SPAWN_INTERVAL) {
           game.spawnAccumulator -= ENEMY_SPAWN_INTERVAL;
 
           if (game.enemies.length >= getMaxEnemies()) {
@@ -695,6 +750,10 @@
       }
 
       function runTick() {
+        if (game.defeated) {
+          return;
+        }
+
         const player = game.player;
         const direction = DIRECTIONS[player.queuedDir];
         const targetQ = player.q + direction.q;
@@ -812,43 +871,31 @@
 
       function moveEnemies() {
         const player = game.player;
-        const enemiesInOrder = [...game.enemies].sort((left, right) => hexDistance(left, player) - hexDistance(right, player));
+        const movePlans = getEnemyMovePlans();
 
-        for (const enemy of enemiesInOrder) {
-          let bestMove = null;
-
-          for (let index = 0; index < DIRECTIONS.length; index += 1) {
-            const direction = DIRECTIONS[index];
-            const targetQ = enemy.q + direction.q;
-            const targetR = enemy.r + direction.r;
-
-            if (!isArenaCell(targetQ, targetR) || isEnemyAt(targetQ, targetR, enemy.id)) {
-              continue;
-            }
-
-            if (targetQ === player.q && targetR === player.r) {
-              continue;
-            }
-
-            const score = hexDistance({ q: targetQ, r: targetR }, player);
-
-            if (!bestMove || score < bestMove.score) {
-              bestMove = { q: targetQ, r: targetR, score };
-            }
+        for (const plan of movePlans) {
+          if (plan.q === plan.fromQ && plan.r === plan.fromR) {
+            continue;
           }
 
-          if (!bestMove) {
+          const enemy = game.enemies.find((entry) => entry.id === plan.id);
+
+          if (!enemy) {
             continue;
           }
 
           enemy.fromQ = enemy.q;
           enemy.fromR = enemy.r;
-          enemy.q = bestMove.q;
-          enemy.r = bestMove.r;
+          enemy.q = plan.q;
+          enemy.r = plan.r;
           enemy.anim = 0;
         }
 
         if (getNearestEnemyDistance() === 1) {
+          if (applyEnemyPressure()) {
+            return;
+          }
+
           game.message = "Ein Gegner ist direkt neben dir.";
         }
       }
@@ -863,6 +910,7 @@
 
         drawArena();
         drawQueuedDirection();
+        drawEnemyIntents();
         drawPointerGuide();
         drawEnemies();
         drawPlayer();
@@ -913,6 +961,28 @@
         );
       }
 
+      function drawEnemyIntents() {
+        if (!showEnemyIntent || game.enemies.length === 0) {
+          return;
+        }
+
+        for (const plan of getEnemyMovePlans()) {
+          if (plan.q === plan.fromQ && plan.r === plan.fromR) {
+            continue;
+          }
+
+          const target = axialToPixel(plan.q, plan.r);
+          drawHex(
+            target.x,
+            target.y,
+            hexSize * 0.58,
+            "rgba(255, 106, 93, 0.08)",
+            "rgba(255, 106, 93, 0.58)",
+            2
+          );
+        }
+      }
+
       function drawPointerGuide() {
         if (!game.pointerActive) {
           return;
@@ -959,6 +1029,7 @@
         const player = game.player;
         const { x, y } = actorPosition(player);
         const angle = directionToAngle(player.face);
+        const bodyColor = player.hitFlash > 0 ? "#fff1ef" : "#77e0cd";
 
         if (game.tickPulse > 0) {
           ctx.beginPath();
@@ -1000,7 +1071,7 @@
 
         ctx.beginPath();
         ctx.arc(x, y, hexSize * 0.42, 0, Math.PI * 2);
-        ctx.fillStyle = "#77e0cd";
+        ctx.fillStyle = bodyColor;
         ctx.fill();
 
         ctx.lineWidth = 4;
@@ -1020,7 +1091,7 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         ctx.font = '600 14px "Trebuchet MS", sans-serif';
         ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
-        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Space greift an, Gegner koennen dich nicht toeten.", 28, height - 28);
+        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Space greift an, Gegnerdruck reduziert jetzt dein Leben.", 28, height - 28);
         ctx.restore();
       }
 
@@ -1031,7 +1102,9 @@
         const previewQ = player.q + direction.q;
         const previewR = player.r + direction.r;
         const nearestEnemyDistance = getNearestEnemyDistance();
-        const movingState = nearestEnemyDistance === 1
+        const movingState = game.defeated
+          ? "Besiegt"
+          : nearestEnemyDistance === 1
           ? "Bedrängt"
           : isEnemyAt(previewQ, previewR)
             ? "Blockiert"
@@ -1039,6 +1112,7 @@
               ? "Läuft"
               : "Am Rand";
 
+        healthText.textContent = `${player.health} / ${player.maxHealth}`;
         directionText.textContent = `${direction.name} (${direction.key})`;
         tickText.textContent = `${moveTickMs} ms`;
         positionText.textContent = `q ${player.q} / r ${player.r}`;
@@ -1046,13 +1120,15 @@
         stateText.textContent = movingState;
         tickMeter.style.width = `${Math.max(0, Math.min(1, tickProgress)) * 100}%`;
         statusText.textContent = nearestEnemyDistance === null
-          ? `${game.message} Unendlich Leben ist aktiv.`
-          : `${game.message} Naechster Gegner: ${nearestEnemyDistance} Felder. Unendlich Leben ist aktiv.`;
+          ? game.message
+          : `${game.message} Naechster Gegner: ${nearestEnemyDistance} Felder.`;
         speedValue.textContent = `${moveTickMs} ms`;
         arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder`;
         enemySpeedValue.textContent = `${enemyMoveTickMs} ms`;
+        healthValue.textContent = `${playerMaxHealth}`;
         sizeValue.textContent = `${hexSize} px`;
         attackModeValue.textContent = roundAttackEnabled ? "Rundumschlag" : "Frontschlag";
+        enemyIntentValue.textContent = showEnemyIntent ? "An" : "Aus";
       }
 
       function actorPosition(actor) {
@@ -1163,8 +1239,85 @@
         return bestDistance;
       }
 
+      function applyEnemyPressure() {
+        const touchingEnemies = game.enemies.filter((enemy) => hexDistance(enemy, game.player) === 1);
+
+        if (touchingEnemies.length === 0 || game.player.invulnerability > 0) {
+          return false;
+        }
+
+        game.player.health = Math.max(0, game.player.health - 1);
+        game.player.invulnerability = PLAYER_HIT_COOLDOWN;
+        game.player.hitFlash = 1;
+
+        if (game.player.health <= 0) {
+          game.defeated = true;
+          game.message = "Du wurdest besiegt. Drücke R für einen Neustart oder setze neues Leben per Slider.";
+          return true;
+        }
+
+        game.message = `Treffer kassiert. Noch ${game.player.health} Leben.`;
+        return true;
+      }
+
       function isSameCell(a, b) {
         return a.q === b.q && a.r === b.r;
+      }
+
+      function getEnemyMovePlans() {
+        const player = game.player;
+        const simulated = new Map(game.enemies.map((enemy) => [enemy.id, { q: enemy.q, r: enemy.r }]));
+        const enemiesInOrder = [...game.enemies].sort((left, right) => hexDistance(left, player) - hexDistance(right, player));
+        const plans = [];
+
+        for (const enemy of enemiesInOrder) {
+          let bestMove = null;
+
+          for (let index = 0; index < DIRECTIONS.length; index += 1) {
+            const direction = DIRECTIONS[index];
+            const targetQ = enemy.q + direction.q;
+            const targetR = enemy.r + direction.r;
+
+            if (!isArenaCell(targetQ, targetR)) {
+              continue;
+            }
+
+            if (targetQ === player.q && targetR === player.r) {
+              continue;
+            }
+
+            let occupied = false;
+
+            for (const [enemyId, position] of simulated.entries()) {
+              if (enemyId !== enemy.id && position.q === targetQ && position.r === targetR) {
+                occupied = true;
+                break;
+              }
+            }
+
+            if (occupied) {
+              continue;
+            }
+
+            const score = hexDistance({ q: targetQ, r: targetR }, player);
+
+            if (!bestMove || score < bestMove.score) {
+              bestMove = { q: targetQ, r: targetR, score };
+            }
+          }
+
+          const finalMove = bestMove || { q: enemy.q, r: enemy.r };
+          simulated.set(enemy.id, { q: finalMove.q, r: finalMove.r });
+          plans.push({
+            id: enemy.id,
+            fromQ: enemy.q,
+            fromR: enemy.r,
+            q: finalMove.q,
+            r: finalMove.r,
+          });
+        }
+
+        return plans;
       }
 
       function getAttackTargets(player) {
