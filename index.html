@@ -265,8 +265,8 @@
         <span class="eyebrow">Movement Prototype</span>
         <h1>Hexabattle</h1>
         <p class="intro">
-          Erste Testversion nur für das Bewegungsgefühl: ein Spieler auf einem Hexfeld-Raster, eine
-          gewählte Richtung und automatische Schritte im festen Takt.
+          Erste Testversion für Bewegungsgefühl und Raumdruck: ein Spieler, ein einfacher Gegner,
+          Hexfeld-Raster, gewählte Richtung und automatische Schritte im festen Takt.
         </p>
 
         <div class="stats">
@@ -281,6 +281,10 @@
           <div class="stat">
             <span class="stat-label">Position</span>
             <div class="stat-value" id="positionText">q 0 / r 0</div>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Gegner</span>
+            <div class="stat-value" id="enemyText">5 Felder</div>
           </div>
           <div class="stat">
             <span class="stat-label">Status</span>
@@ -309,6 +313,14 @@
           <input class="slider-input" id="arenaSlider" type="range" min="2" max="8" step="1" value="5" />
         </div>
 
+        <div class="slider-block">
+          <div class="slider-row">
+            <div class="section-title">Feldgröße</div>
+            <div class="slider-value" id="sizeValue">42 px</div>
+          </div>
+          <input class="slider-input" id="sizeSlider" type="range" min="26" max="70" step="2" value="42" />
+        </div>
+
         <div class="controls">
           <div class="control">
             <div class="keycap">Q W E<br />A S D</div>
@@ -328,14 +340,14 @@
             <div class="keycap">R</div>
             <div>
               <strong>Zur Mitte</strong>
-              <span>Setzt den Spieler zurück auf das Zentrum, um eine Bewegungs-Idee schnell erneut zu testen.</span>
+              <span>Setzt Spieler und Gegner für einen schnellen neuen Durchlauf auf die Startpositionen zurück.</span>
             </div>
           </div>
         </div>
 
         <div class="status-box">
           <strong>Prototype Focus</strong>
-          <p id="statusText">Teste nur, ob sich Richtungswahl und getaktete Hex-Bewegung sauber und gut lesbar anfühlen.</p>
+          <p id="statusText">Teste, ob sich Richtungswahl, Feldgröße, Arena-Größe und der Druck eines einzelnen Gegners schon gut anfühlen.</p>
         </div>
 
         <p class="footer-note">
@@ -351,6 +363,7 @@
       const directionText = document.getElementById("directionText");
       const tickText = document.getElementById("tickText");
       const positionText = document.getElementById("positionText");
+      const enemyText = document.getElementById("enemyText");
       const stateText = document.getElementById("stateText");
       const tickMeter = document.getElementById("tickMeter");
       const statusText = document.getElementById("statusText");
@@ -358,9 +371,11 @@
       const speedValue = document.getElementById("speedValue");
       const arenaSlider = document.getElementById("arenaSlider");
       const arenaValue = document.getElementById("arenaValue");
+      const sizeSlider = document.getElementById("sizeSlider");
+      const sizeValue = document.getElementById("sizeValue");
 
       const DEFAULT_ARENA_RADIUS = 5;
-      const HEX_SIZE = 42;
+      const DEFAULT_HEX_SIZE = 42;
       const DEFAULT_MOVE_TICK_MS = 280;
 
       const DIRECTIONS = [
@@ -387,9 +402,9 @@
       let lastTime = performance.now();
       let moveTickMs = DEFAULT_MOVE_TICK_MS;
       let arenaRadius = DEFAULT_ARENA_RADIUS;
-      let game = createGame();
-
+      let hexSize = DEFAULT_HEX_SIZE;
       rebuildArena();
+      let game = createGame();
       window.addEventListener("resize", resizeCanvas);
       window.addEventListener("keydown", handleKeyDown);
       canvas.addEventListener("pointermove", handlePointerMove);
@@ -397,11 +412,14 @@
       canvas.addEventListener("pointerleave", handlePointerLeave);
       speedSlider.addEventListener("input", handleSpeedInput);
       arenaSlider.addEventListener("input", handleArenaInput);
+      sizeSlider.addEventListener("input", handleSizeInput);
 
       resizeCanvas();
       requestAnimationFrame(frame);
 
       function createGame() {
+        const enemySpawn = getEnemySpawn({ q: 0, r: 0 });
+
         return {
           player: {
             q: 0,
@@ -412,13 +430,21 @@
             queuedDir: 0,
             face: 0,
           },
+          enemy: {
+            q: enemySpawn.q,
+            r: enemySpawn.r,
+            fromQ: enemySpawn.q,
+            fromR: enemySpawn.r,
+            anim: 1,
+          },
           tickAccumulator: 0,
           tickPulse: 0,
-          message: "Wähle eine Richtung und beobachte, wie der Spieler im Takt über das Hex-Raster läuft.",
+          message: "Wähle eine Richtung und beobachte, wie Spieler und Gegner im Takt über das Hex-Raster laufen.",
           blockedFlash: 0,
           pointerActive: false,
           pointerX: 0,
           pointerY: 0,
+          caught: false,
         };
       }
 
@@ -457,7 +483,7 @@
         arenaRadius = Number(event.target.value);
         rebuildArena();
 
-        if (!isWalkable(game.player.q, game.player.r)) {
+        if (!isArenaCell(game.player.q, game.player.r)) {
           game.player.q = 0;
           game.player.r = 0;
           game.player.fromQ = 0;
@@ -465,7 +491,14 @@
           game.player.anim = 1;
         }
 
+        relocateEnemy();
+
         game.message = `Arena auf ${getArenaFieldCount(arenaRadius)} Felder gesetzt.`;
+      }
+
+      function handleSizeInput(event) {
+        hexSize = Number(event.target.value);
+        game.message = `Feldgröße auf ${hexSize} px gesetzt.`;
       }
 
       function handlePointerMove(event) {
@@ -479,7 +512,7 @@
         game.pointerX = point.x;
         game.pointerY = point.y;
 
-        if (distance < HEX_SIZE * 0.42) {
+        if (distance < hexSize * 0.42) {
           return;
         }
 
@@ -506,6 +539,7 @@
 
       function update(deltaSeconds, deltaMs) {
         game.player.anim = Math.min(1, game.player.anim + deltaSeconds * 6.5);
+        game.enemy.anim = Math.min(1, game.enemy.anim + deltaSeconds * 6.5);
         game.tickAccumulator += deltaMs;
         game.tickPulse = Math.max(0, game.tickPulse - deltaSeconds * 2.4);
         game.blockedFlash = Math.max(0, game.blockedFlash - deltaSeconds * 3.5);
@@ -517,6 +551,10 @@
       }
 
       function runTick() {
+        if (game.caught) {
+          return;
+        }
+
         const player = game.player;
         const direction = DIRECTIONS[player.queuedDir];
         const targetQ = player.q + direction.q;
@@ -529,16 +567,28 @@
           player.r = targetR;
           player.anim = 0;
           game.message = `Schritt nach ${direction.name}.`;
+        } else if (isEnemyAt(targetQ, targetR)) {
+          game.blockedFlash = 1;
+          game.message = "Der Gegner blockiert das nächste Feld.";
         } else {
           game.blockedFlash = 1;
           game.message = "Rand erreicht. Der nächste Schritt in diese Richtung ist nicht möglich.";
         }
 
+        moveEnemy();
         game.tickPulse = 1;
       }
 
       function isWalkable(q, r) {
+        return isArenaCell(q, r) && !isEnemyAt(q, r);
+      }
+
+      function isArenaCell(q, r) {
         return arenaCells.has(keyOf(q, r));
+      }
+
+      function isEnemyAt(q, r) {
+        return game.enemy.q === q && game.enemy.r === r;
       }
 
       function rebuildArena() {
@@ -553,6 +603,85 @@
         }
       }
 
+      function relocateEnemy() {
+        if (isArenaCell(game.enemy.q, game.enemy.r) && !isSameCell(game.enemy, game.player)) {
+          return;
+        }
+
+        const spawn = getEnemySpawn(game.player);
+        game.enemy.q = spawn.q;
+        game.enemy.r = spawn.r;
+        game.enemy.fromQ = spawn.q;
+        game.enemy.fromR = spawn.r;
+        game.enemy.anim = 1;
+      }
+
+      function getEnemySpawn(reference) {
+        let best = null;
+
+        for (const tileKey of arenaCells) {
+          const [qText, rText] = tileKey.split(",");
+          const candidate = { q: Number(qText), r: Number(rText) };
+
+          if (isSameCell(candidate, reference)) {
+            continue;
+          }
+
+          const distance = hexDistance(candidate, reference);
+
+          if (!best || distance > best.distance) {
+            best = { ...candidate, distance };
+          }
+        }
+
+        return best || { q: 0, r: 0 };
+      }
+
+      function moveEnemy() {
+        const enemy = game.enemy;
+        const player = game.player;
+        let bestMove = null;
+
+        for (let index = 0; index < DIRECTIONS.length; index += 1) {
+          const direction = DIRECTIONS[index];
+          const targetQ = enemy.q + direction.q;
+          const targetR = enemy.r + direction.r;
+
+          if (!isArenaCell(targetQ, targetR)) {
+            continue;
+          }
+
+          const catchesPlayer = targetQ === player.q && targetR === player.r;
+          const score = catchesPlayer ? -1 : hexDistance({ q: targetQ, r: targetR }, player);
+
+          if (!bestMove || score < bestMove.score) {
+            bestMove = { q: targetQ, r: targetR, score, catchesPlayer };
+          }
+        }
+
+        if (!bestMove) {
+          return;
+        }
+
+        enemy.fromQ = enemy.q;
+        enemy.fromR = enemy.r;
+        enemy.q = bestMove.q;
+        enemy.r = bestMove.r;
+        enemy.anim = 0;
+
+        if (bestMove.catchesPlayer) {
+          game.caught = true;
+          game.message = "Der Gegner hat dich erwischt. Drücke R für einen Neustart.";
+          return;
+        }
+
+        const distance = hexDistance(enemy, player);
+
+        if (distance === 1) {
+          game.message = "Der Gegner ist direkt neben dir.";
+        }
+      }
+
       function render() {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
@@ -564,6 +693,7 @@
         drawArena();
         drawQueuedDirection();
         drawPointerGuide();
+        drawEnemy();
         drawPlayer();
         drawOverlayText(width, height);
 
@@ -581,14 +711,14 @@
           drawHex(
             x,
             y,
-            HEX_SIZE - 1,
+            hexSize - 1,
             `rgba(24, 43, 51, ${0.74 - distance * 0.05})`,
             "rgba(143, 197, 189, 0.17)",
             1.5
           );
         }
 
-        drawHex(0, 0, HEX_SIZE * (arenaRadius + 0.55), "transparent", `rgba(244, 183, 77, ${0.2 + game.tickPulse * 0.16})`, 2);
+        drawHex(0, 0, hexSize * (arenaRadius + 0.55), "transparent", `rgba(244, 183, 77, ${0.2 + game.tickPulse * 0.16})`, 2);
       }
 
       function drawQueuedDirection() {
@@ -605,7 +735,7 @@
         drawHex(
           target.x,
           target.y,
-          HEX_SIZE * 0.68,
+          hexSize * 0.68,
           "rgba(244, 183, 77, 0.08)",
           "rgba(244, 183, 77, 0.5)",
           2
@@ -631,6 +761,28 @@
         ctx.fill();
       }
 
+      function drawEnemy() {
+        const enemy = game.enemy;
+        const { x, y } = actorPosition(enemy);
+        const distance = hexDistance(enemy, game.player);
+
+        if (distance <= 2) {
+          ctx.beginPath();
+          ctx.arc(x, y, hexSize * 0.64, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 106, 93, ${distance === 0 ? 0.34 : 0.16})`;
+          ctx.fill();
+        }
+
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.34, 0, Math.PI * 2);
+        ctx.fillStyle = "#ff6a5d";
+        ctx.fill();
+
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+        ctx.stroke();
+      }
+
       function drawPlayer() {
         const player = game.player;
         const { x, y } = actorPosition(player);
@@ -638,21 +790,21 @@
 
         if (game.tickPulse > 0) {
           ctx.beginPath();
-          ctx.arc(x, y, HEX_SIZE * (0.5 + game.tickPulse * 0.32), 0, Math.PI * 2);
+          ctx.arc(x, y, hexSize * (0.5 + game.tickPulse * 0.32), 0, Math.PI * 2);
           ctx.fillStyle = `rgba(119, 224, 205, ${0.08 + game.tickPulse * 0.1})`;
           ctx.fill();
         }
 
         if (game.blockedFlash > 0) {
           ctx.beginPath();
-          ctx.arc(x, y, HEX_SIZE * 0.74, 0, Math.PI * 2);
+          ctx.arc(x, y, hexSize * 0.74, 0, Math.PI * 2);
           ctx.lineWidth = 4;
           ctx.strokeStyle = `rgba(255, 122, 106, ${game.blockedFlash * 0.8})`;
           ctx.stroke();
         }
 
         ctx.beginPath();
-        ctx.arc(x, y, HEX_SIZE * 0.42, 0, Math.PI * 2);
+        ctx.arc(x, y, hexSize * 0.42, 0, Math.PI * 2);
         ctx.fillStyle = "#77e0cd";
         ctx.fill();
 
@@ -662,7 +814,7 @@
 
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(angle) * HEX_SIZE * 0.58, y + Math.sin(angle) * HEX_SIZE * 0.58);
+        ctx.lineTo(x + Math.cos(angle) * hexSize * 0.58, y + Math.sin(angle) * hexSize * 0.58);
         ctx.lineWidth = 5;
         ctx.strokeStyle = "#081116";
         ctx.stroke();
@@ -673,7 +825,7 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         ctx.font = '600 14px "Trebuchet MS", sans-serif';
         ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
-        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Der Schritt kommt automatisch im Tick.", 28, height - 28);
+        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Spieler und Gegner bewegen sich im selben Tick.", 28, height - 28);
         ctx.restore();
       }
 
@@ -683,16 +835,25 @@
         const tickProgress = 1 - game.tickAccumulator / moveTickMs;
         const previewQ = player.q + direction.q;
         const previewR = player.r + direction.r;
-        const movingState = isWalkable(previewQ, previewR) ? "Läuft" : "Am Rand";
+        const enemyDistance = hexDistance(player, game.enemy);
+        const movingState = game.caught
+          ? "Erwischt"
+          : isEnemyAt(previewQ, previewR)
+            ? "Blockiert"
+            : isWalkable(previewQ, previewR)
+              ? "Läuft"
+              : "Am Rand";
 
         directionText.textContent = `${direction.name} (${direction.key})`;
         tickText.textContent = `${moveTickMs} ms`;
         positionText.textContent = `q ${player.q} / r ${player.r}`;
+        enemyText.textContent = `${enemyDistance} Felder`;
         stateText.textContent = movingState;
         tickMeter.style.width = `${Math.max(0, Math.min(1, tickProgress)) * 100}%`;
         statusText.textContent = game.message;
         speedValue.textContent = `${moveTickMs} ms`;
         arenaValue.textContent = `${getArenaFieldCount(arenaRadius)} Felder`;
+        sizeValue.textContent = `${hexSize} px`;
       }
 
       function actorPosition(actor) {
@@ -704,8 +865,8 @@
 
       function axialToPixel(q, r) {
         return {
-          x: HEX_SIZE * Math.sqrt(3) * (q + r / 2),
-          y: HEX_SIZE * 1.5 * r,
+          x: hexSize * Math.sqrt(3) * (q + r / 2),
+          y: hexSize * 1.5 * r,
         };
       }
 
@@ -772,6 +933,10 @@
 
       function getArenaFieldCount(radius) {
         return 1 + 3 * radius * (radius + 1);
+      }
+
+      function isSameCell(a, b) {
+        return a.q === b.q && a.r === b.r;
       }
 
       function hexDistance(a, b) {
