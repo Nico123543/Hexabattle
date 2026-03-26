@@ -384,6 +384,14 @@
         </div>
 
         <div class="slider-block">
+          <div class="slider-row">
+            <div class="section-title">Figurbreite</div>
+            <div class="slider-value" id="entityScaleValue">1 Feld</div>
+          </div>
+          <input class="slider-input" id="entityScaleSlider" type="range" min="1" max="7" step="1" value="1" />
+        </div>
+
+        <div class="slider-block">
           <label class="toggle-row" for="attackModeToggle">
             <div class="toggle-copy">
               <div class="section-title">Angriffsmodus</div>
@@ -469,6 +477,8 @@
       const healthValue = document.getElementById("healthValue");
       const sizeSlider = document.getElementById("sizeSlider");
       const sizeValue = document.getElementById("sizeValue");
+      const entityScaleSlider = document.getElementById("entityScaleSlider");
+      const entityScaleValue = document.getElementById("entityScaleValue");
       const attackModeToggle = document.getElementById("attackModeToggle");
       const attackModeValue = document.getElementById("attackModeValue");
       const enemyIntentToggle = document.getElementById("enemyIntentToggle");
@@ -476,6 +486,7 @@
 
       const DEFAULT_ARENA_FIELDS = 91;
       const DEFAULT_HEX_SIZE = 42;
+      const DEFAULT_ENTITY_FIELD_SPAN = 1;
       const DEFAULT_MOVE_TICK_MS = 280;
       const DEFAULT_ENEMY_TICK_MS = 440;
       const DEFAULT_PLAYER_HEALTH = 12;
@@ -521,6 +532,7 @@
       let arenaTargetFields = DEFAULT_ARENA_FIELDS;
       let arenaRadius = getRadiusForFieldTarget(arenaTargetFields);
       let hexSize = DEFAULT_HEX_SIZE;
+      let entityFieldSpan = DEFAULT_ENTITY_FIELD_SPAN;
       let playerMaxHealth = DEFAULT_PLAYER_HEALTH;
       let roundAttackEnabled = false;
       let showEnemyIntent = false;
@@ -538,6 +550,7 @@
       enemySpeedInput.addEventListener("input", handleEnemySpeedInput);
       healthSlider.addEventListener("input", handleHealthInput);
       sizeSlider.addEventListener("input", handleSizeInput);
+      entityScaleSlider.addEventListener("input", handleEntityScaleInput);
       attackModeToggle.addEventListener("input", handleAttackModeToggle);
       enemyIntentToggle.addEventListener("input", handleEnemyIntentToggle);
 
@@ -663,6 +676,11 @@
         game.message = `Feldgröße auf ${hexSize} px gesetzt.`;
       }
 
+      function handleEntityScaleInput(event) {
+        entityFieldSpan = clampNumber(Number(event.target.value), 1, 7, entityFieldSpan);
+        game.message = `Figurbreite auf ${entityFieldSpan} ${entityFieldSpan === 1 ? "Feld" : "Felder"} gesetzt.`;
+      }
+
       function handleAttackModeToggle(event) {
         roundAttackEnabled = event.target.checked;
         game.message = roundAttackEnabled ? "Rundumschlag aktiviert." : "Frontschlag aktiviert.";
@@ -704,7 +722,7 @@
         const deltaY = point.y - playerPos.y;
         const distance = Math.hypot(deltaX, deltaY);
 
-        if (distance < hexSize * 0.42) {
+        if (distance < getPlayerBodyRadius() * 0.92) {
           return false;
         }
 
@@ -1239,19 +1257,21 @@
       }
 
       function drawEnemies() {
+        const enemyBodyRadius = getEnemyBodyRadius();
+
         for (const enemy of game.enemies) {
           const { x, y } = actorPosition(enemy);
           const distance = hexDistance(enemy, game.player);
 
           if (distance <= 2) {
             ctx.beginPath();
-            ctx.arc(x, y, hexSize * 0.64, 0, Math.PI * 2);
+            ctx.arc(x, y, enemyBodyRadius + hexSize * 0.3, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(255, 106, 93, ${distance === 0 ? 0.34 : 0.16})`;
             ctx.fill();
           }
 
           ctx.beginPath();
-          ctx.arc(x, y, hexSize * 0.34, 0, Math.PI * 2);
+          ctx.arc(x, y, enemyBodyRadius, 0, Math.PI * 2);
           ctx.fillStyle = "#ff6a5d";
           ctx.fill();
 
@@ -1266,17 +1286,18 @@
         const { x, y } = actorPosition(player);
         const angle = directionToAngle(player.face);
         const bodyColor = player.hitFlash > 0 ? "#fff1ef" : "#77e0cd";
+        const bodyRadius = getPlayerBodyRadius();
 
         if (game.tickPulse > 0) {
           ctx.beginPath();
-          ctx.arc(x, y, hexSize * (0.5 + game.tickPulse * 0.32), 0, Math.PI * 2);
+          ctx.arc(x, y, bodyRadius + hexSize * (0.12 + game.tickPulse * 0.32), 0, Math.PI * 2);
           ctx.fillStyle = `rgba(119, 224, 205, ${0.08 + game.tickPulse * 0.1})`;
           ctx.fill();
         }
 
         if (game.blockedFlash > 0) {
           ctx.beginPath();
-          ctx.arc(x, y, hexSize * 0.74, 0, Math.PI * 2);
+          ctx.arc(x, y, bodyRadius + hexSize * 0.32, 0, Math.PI * 2);
           ctx.lineWidth = 4;
           ctx.strokeStyle = `rgba(255, 122, 106, ${game.blockedFlash * 0.8})`;
           ctx.stroke();
@@ -1286,12 +1307,12 @@
           const intensity = player.attackTimer / ATTACK_ACTIVE;
           if (player.attackMode === "round") {
             ctx.beginPath();
-            ctx.arc(x, y, hexSize * (0.9 + intensity * 0.3), 0, Math.PI * 2);
+            ctx.arc(x, y, bodyRadius + hexSize * (0.48 + intensity * 0.3), 0, Math.PI * 2);
             ctx.lineWidth = 8;
             ctx.strokeStyle = `rgba(244, 183, 77, ${0.24 + intensity * 0.2})`;
             ctx.stroke();
           } else {
-            const reach = hexSize * (1.18 + (1 - intensity) * 0.18);
+            const reach = bodyRadius + hexSize * (0.76 + (1 - intensity) * 0.18);
             const leftAngle = angle - Math.PI / 5;
             const rightAngle = angle + Math.PI / 5;
 
@@ -1306,7 +1327,7 @@
         }
 
         ctx.beginPath();
-        ctx.arc(x, y, hexSize * 0.42, 0, Math.PI * 2);
+        ctx.arc(x, y, bodyRadius, 0, Math.PI * 2);
         ctx.fillStyle = bodyColor;
         ctx.fill();
 
@@ -1316,7 +1337,7 @@
 
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(angle) * hexSize * 0.58, y + Math.sin(angle) * hexSize * 0.58);
+        ctx.lineTo(x + Math.cos(angle) * (bodyRadius + hexSize * 0.16), y + Math.sin(angle) * (bodyRadius + hexSize * 0.16));
         ctx.lineWidth = 5;
         ctx.strokeStyle = "#081116";
         ctx.stroke();
@@ -1365,6 +1386,8 @@
         enemySpeedInput.value = `${enemyMoveTickMs}`;
         healthValue.textContent = `${playerMaxHealth}`;
         sizeValue.textContent = `${hexSize} px`;
+        entityScaleSlider.value = `${entityFieldSpan}`;
+        entityScaleValue.textContent = `${entityFieldSpan} ${entityFieldSpan === 1 ? "Feld" : "Felder"}`;
         attackModeValue.textContent = roundAttackEnabled ? "Rundumschlag" : "Frontschlag";
         enemyIntentValue.textContent = showEnemyIntent ? "An" : "Aus";
       }
@@ -1381,6 +1404,14 @@
           x: hexSize * Math.sqrt(3) * (q + r / 2),
           y: hexSize * 1.5 * r,
         };
+      }
+
+      function getPlayerBodyRadius() {
+        return hexSize * (0.42 + (entityFieldSpan - 1) * 0.5);
+      }
+
+      function getEnemyBodyRadius() {
+        return hexSize * (0.34 + (entityFieldSpan - 1) * 0.5);
       }
 
       function pointerToWorld(event) {
