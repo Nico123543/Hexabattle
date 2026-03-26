@@ -172,6 +172,34 @@
         transition: width 80ms linear;
       }
 
+      .slider-block {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .slider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .slider-value {
+        min-width: 64px;
+        text-align: right;
+        font-weight: 700;
+        color: var(--accent);
+      }
+
+      .slider-input {
+        width: 100%;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
       .controls {
         display: grid;
         gap: 10px;
@@ -265,12 +293,27 @@
           <div class="meter"><div class="meter-fill" id="tickMeter"></div></div>
         </div>
 
+        <div class="slider-block">
+          <div class="slider-row">
+            <div class="section-title">Geschwindigkeit</div>
+            <div class="slider-value" id="sliderValue">280 ms</div>
+          </div>
+          <input class="slider-input" id="speedSlider" type="range" min="120" max="700" step="10" value="280" />
+        </div>
+
         <div class="controls">
           <div class="control">
             <div class="keycap">Q W E<br />A S D</div>
             <div>
               <strong>Richtung setzen</strong>
               <span>Du gibst nur die nächste Laufrichtung vor. Der Spieler läuft dann im festen Takt automatisch weiter.</span>
+            </div>
+          </div>
+          <div class="control">
+            <div class="keycap">Maus</div>
+            <div>
+              <strong>Richtung zeigen</strong>
+              <span>Bewege die Maus auf dem Spielfeld oder klicke hinein. Die Richtung wird dann direkt auf die nächste Hex-Ausrichtung gesetzt.</span>
             </div>
           </div>
           <div class="control">
@@ -303,10 +346,13 @@
       const stateText = document.getElementById("stateText");
       const tickMeter = document.getElementById("tickMeter");
       const statusText = document.getElementById("statusText");
+      const speedSlider = document.getElementById("speedSlider");
+      const sliderValue = document.getElementById("sliderValue");
 
       const HEX_RADIUS = 5;
       const HEX_SIZE = 42;
-      const MOVE_TICK_MS = 280;
+      const DEFAULT_MOVE_TICK_MS = 280;
+      const POINTER_DEADZONE = 18;
 
       const DIRECTIONS = [
         { q: 1, r: 0, name: "Ost", key: "E" },
@@ -338,10 +384,15 @@
 
       let pixelRatio = window.devicePixelRatio || 1;
       let lastTime = performance.now();
+      let moveTickMs = DEFAULT_MOVE_TICK_MS;
       let game = createGame();
 
       window.addEventListener("resize", resizeCanvas);
       window.addEventListener("keydown", handleKeyDown);
+      canvas.addEventListener("pointermove", handlePointerMove);
+      canvas.addEventListener("pointerdown", handlePointerMove);
+      canvas.addEventListener("pointerleave", handlePointerLeave);
+      speedSlider.addEventListener("input", handleSpeedInput);
 
       resizeCanvas();
       requestAnimationFrame(frame);
@@ -361,6 +412,9 @@
           tickPulse: 0,
           message: "Wähle eine Richtung und beobachte, wie der Spieler im Takt über das Hex-Raster läuft.",
           blockedFlash: 0,
+          pointerActive: false,
+          pointerX: 0,
+          pointerY: 0,
         };
       }
 
@@ -389,6 +443,37 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       }
 
+      function handleSpeedInput(event) {
+        moveTickMs = Number(event.target.value);
+        game.tickAccumulator = Math.min(game.tickAccumulator, moveTickMs);
+        game.message = `Bewegungstakt auf ${moveTickMs} ms gesetzt.`;
+      }
+
+      function handlePointerMove(event) {
+        const point = pointerToWorld(event);
+        const playerPos = actorPosition(game.player);
+        const deltaX = point.x - playerPos.x;
+        const deltaY = point.y - playerPos.y;
+        const distance = Math.hypot(deltaX, deltaY);
+
+        game.pointerActive = true;
+        game.pointerX = point.x;
+        game.pointerY = point.y;
+
+        if (distance < POINTER_DEADZONE) {
+          return;
+        }
+
+        const directionIndex = getDirectionFromVector(deltaX, deltaY);
+        game.player.queuedDir = directionIndex;
+        game.player.face = directionIndex;
+        game.message = `Richtung gesetzt: ${DIRECTIONS[directionIndex].name}.`;
+      }
+
+      function handlePointerLeave() {
+        game.pointerActive = false;
+      }
+
       function frame(now) {
         const deltaMs = Math.min(32, now - lastTime);
         lastTime = now;
@@ -406,8 +491,8 @@
         game.tickPulse = Math.max(0, game.tickPulse - deltaSeconds * 2.4);
         game.blockedFlash = Math.max(0, game.blockedFlash - deltaSeconds * 3.5);
 
-        while (game.tickAccumulator >= MOVE_TICK_MS) {
-          game.tickAccumulator -= MOVE_TICK_MS;
+        while (game.tickAccumulator >= moveTickMs) {
+          game.tickAccumulator -= moveTickMs;
           runTick();
         }
       }
@@ -447,6 +532,7 @@
 
         drawArena();
         drawQueuedDirection();
+        drawPointerGuide();
         drawPlayer();
         drawOverlayText(width, height);
 
@@ -495,6 +581,25 @@
         );
       }
 
+      function drawPointerGuide() {
+        if (!game.pointerActive) {
+          return;
+        }
+
+        const playerPos = actorPosition(game.player);
+        ctx.beginPath();
+        ctx.moveTo(playerPos.x, playerPos.y);
+        ctx.lineTo(game.pointerX, game.pointerY);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(244, 183, 77, 0.2)";
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(game.pointerX, game.pointerY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(244, 183, 77, 0.7)";
+        ctx.fill();
+      }
+
       function drawPlayer() {
         const player = game.player;
         const { x, y } = actorPosition(player);
@@ -537,24 +642,25 @@
         ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         ctx.font = '600 14px "Trebuchet MS", sans-serif';
         ctx.fillStyle = "rgba(239, 247, 241, 0.88)";
-        ctx.fillText("Q/W/E/A/S/D setzt die Richtung. Der Schritt kommt automatisch im Tick.", 28, height - 28);
+        ctx.fillText("Q/W/E/A/S/D oder Maus setzt die Richtung. Der Schritt kommt automatisch im Tick.", 28, height - 28);
         ctx.restore();
       }
 
       function updateHud() {
         const player = game.player;
         const direction = DIRECTIONS[player.queuedDir];
-        const tickProgress = 1 - game.tickAccumulator / MOVE_TICK_MS;
+        const tickProgress = 1 - game.tickAccumulator / moveTickMs;
         const previewQ = player.q + direction.q;
         const previewR = player.r + direction.r;
         const movingState = isWalkable(previewQ, previewR) ? "Läuft" : "Am Rand";
 
         directionText.textContent = `${direction.name} (${direction.key})`;
-        tickText.textContent = `${MOVE_TICK_MS} ms`;
+        tickText.textContent = `${moveTickMs} ms`;
         positionText.textContent = `q ${player.q} / r ${player.r}`;
         stateText.textContent = movingState;
         tickMeter.style.width = `${Math.max(0, Math.min(1, tickProgress)) * 100}%`;
         statusText.textContent = game.message;
+        sliderValue.textContent = `${moveTickMs} ms`;
       }
 
       function actorPosition(actor) {
@@ -568,6 +674,14 @@
         return {
           x: HEX_SIZE * Math.sqrt(3) * (q + r / 2),
           y: HEX_SIZE * 1.5 * r,
+        };
+      }
+
+      function pointerToWorld(event) {
+        const bounds = canvas.getBoundingClientRect();
+        return {
+          x: event.clientX - bounds.left - bounds.width / 2,
+          y: event.clientY - bounds.top - bounds.height / 2,
         };
       }
 
@@ -597,6 +711,23 @@
       function directionToAngle(directionIndex) {
         const angles = [0, -Math.PI / 3, -2 * Math.PI / 3, Math.PI, 2 * Math.PI / 3, Math.PI / 3];
         return angles[directionIndex];
+      }
+
+      function getDirectionFromVector(x, y) {
+        let bestIndex = 0;
+        let bestScore = -Infinity;
+
+        for (let index = 0; index < DIRECTIONS.length; index += 1) {
+          const angle = directionToAngle(index);
+          const score = Math.cos(angle) * x + Math.sin(angle) * y;
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestIndex = index;
+          }
+        }
+
+        return bestIndex;
       }
 
       function easeOutCubic(value) {
